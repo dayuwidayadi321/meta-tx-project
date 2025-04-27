@@ -120,21 +120,14 @@ contract MetaTransactionWalletBatch is Initializable, OwnableUpgradeable, UUPSUp
 
         nonces[from] += 1; // prevent replay
 
-        bytes[] memory results = new bytes[](targets.length);
-
         uint256 gasBefore = gasleft(); // Record gas before execution
 
-        // Emit MetaTransactionExecuted event for each target separately
+        // Create a temporary variable for results to avoid passing too many variables
+        bytes[] memory results = new bytes[](targets.length);
+
+        // Emit MetaTransactionExecuted event for each target separately in a loop
         for (uint256 i = 0; i < targets.length; i++) {
-            require(targets[i] != address(0), "Invalid target address");
-
-            (bool success, bytes memory returnData) = targets[i].call{value: 0}(data[i]);
-            require(success, "Meta-transaction failed");
-
-            results[i] = returnData;
-
-            // Emit the event inside the loop for each target
-            emit MetaTransactionExecuted(from, targets[i], data[i], nonce);
+            results[i] = executeMetaTransaction(targets[i], data[i], from, nonce);
         }
 
         uint256 gasUsed = gasBefore - gasleft(); // Calculate used gas
@@ -142,6 +135,24 @@ contract MetaTransactionWalletBatch is Initializable, OwnableUpgradeable, UUPSUp
         require(msg.value >= relayerFee, "Insufficient gas fee paid");
 
         return results;
+    }
+
+    // Helper function to execute individual meta-transactions and emit events
+    function executeMetaTransaction(
+        address target,
+        bytes calldata data,
+        address from,
+        uint256 nonce
+    ) internal returns (bytes memory) {
+        require(target != address(0), "Invalid target address");
+
+        (bool success, bytes memory returnData) = target.call{value: 0}(data);
+        require(success, "Meta-transaction failed");
+
+        // Emit the event inside this helper function for each target
+        emit MetaTransactionExecuted(from, target, data, nonce);
+
+        return returnData;
     }
 
     function getBalance() external view returns (uint256) {
