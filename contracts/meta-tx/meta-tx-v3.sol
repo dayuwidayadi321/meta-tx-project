@@ -12,7 +12,7 @@ contract MetaTransactionWalletBatch is Initializable, OwnableUpgradeable, UUPSUp
     // Events
     event Deposited(address indexed sender, uint256 amount);
     event Withdrawn(address indexed to, uint256 amount);
-    event MetaTransactionExecuted(address indexed user, address[] targets, bytes[] data, uint256 nonce);
+    event MetaTransactionExecuted(address indexed user, address target, bytes data, uint256 nonce);
     event RelayerAdded(address indexed relayer);
     event RelayerRemoved(address indexed relayer);
 
@@ -124,6 +124,7 @@ contract MetaTransactionWalletBatch is Initializable, OwnableUpgradeable, UUPSUp
 
         uint256 gasBefore = gasleft(); // Record gas before execution
 
+        // Emit MetaTransactionExecuted event for each target separately
         for (uint256 i = 0; i < targets.length; i++) {
             require(targets[i] != address(0), "Invalid target address");
 
@@ -131,13 +132,14 @@ contract MetaTransactionWalletBatch is Initializable, OwnableUpgradeable, UUPSUp
             require(success, "Meta-transaction failed");
 
             results[i] = returnData;
+
+            // Emit the event inside the loop for each target
+            emit MetaTransactionExecuted(from, targets[i], data[i], nonce);
         }
 
         uint256 gasUsed = gasBefore - gasleft(); // Calculate used gas
         uint256 relayerFee = gasUsed * tx.gasprice; // Gas fee paid by the relayer
         require(msg.value >= relayerFee, "Insufficient gas fee paid");
-
-        emit MetaTransactionExecuted(from, targets, data, nonce);
 
         return results;
     }
