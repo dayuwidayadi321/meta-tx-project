@@ -17,7 +17,7 @@ contract MetaTransactionWalletBatch is Initializable, OwnableUpgradeable, UUPSUp
     event RelayerRemoved(address indexed relayer);
 
     mapping(address => uint256) public nonces;
-    mapping(address => bool) public relayers; // Mapping untuk relayer yang sah
+    mapping(address => bool) public relayers;
 
     bytes32 public DOMAIN_SEPARATOR;
 
@@ -77,21 +77,18 @@ contract MetaTransactionWalletBatch is Initializable, OwnableUpgradeable, UUPSUp
         emit Withdrawn(to, balance);
     }
 
-    // Fungsi untuk menambahkan relayer yang sah
     function addRelayer(address newRelayer) external onlyOwner {
         require(!relayers[newRelayer], "Already a relayer");
         relayers[newRelayer] = true;
         emit RelayerAdded(newRelayer);
     }
 
-    // Fungsi untuk menghapus relayer yang sah
     function removeRelayer(address relayer) external onlyOwner {
         require(relayers[relayer], "Not a relayer");
         relayers[relayer] = false;
         emit RelayerRemoved(relayer);
     }
 
-    // Batch Meta-Transaction Execution (by Signature)
     function executeMetaBatchWithSignature(
         address from,
         address[] calldata targets,
@@ -114,41 +111,45 @@ contract MetaTransactionWalletBatch is Initializable, OwnableUpgradeable, UUPSUp
         );
 
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
-
         address signer = digest.recover(signature);
         require(signer == from, "Invalid signature");
 
-        nonces[from] += 1; // prevent replay
+        nonces[from] += 1;
 
         bytes[] memory results = new bytes[](targets.length);
+        uint256 gasBefore = gasleft();
 
-        uint256 gasBefore = gasleft(); // Record gas before execution
-
-        // Emit MetaTransactionExecuted event for each target separately
         for (uint256 i = 0; i < targets.length; i++) {
-            require(targets[i] != address(0), "Invalid target address");
-
-            (bool success, bytes memory returnData) = targets[i].call{value: 0}(data[i]);
-            require(success, "Meta-transaction failed");
-
-            results[i] = returnData;
-
-            // Emit the event inside the loop for each target
-            emit MetaTransactionExecuted(from, targets[i], data[i], nonce);
+            results[i] = _executeSingleMetaTransaction(targets[i], data[i], from, nonce);
         }
 
-        uint256 gasUsed = gasBefore - gasleft(); // Calculate used gas
-        uint256 relayerFee = gasUsed * tx.gasprice; // Gas fee paid by the relayer
+        uint256 gasUsed = gasBefore - gasleft();
+        uint256 relayerFee = gasUsed * tx.gasprice;
         require(msg.value >= relayerFee, "Insufficient gas fee paid");
 
         return results;
+    }
+
+    function _executeSingleMetaTransaction(
+        address target,
+        bytes calldata data,
+        address from,
+        uint256 nonce
+    ) internal returns (bytes memory) {
+        require(target != address(0), "Invalid target address");
+
+        (bool success, bytes memory returnData) = target.call{value: 0}(data);
+        require(success, "Meta-transaction failed");
+
+        emit MetaTransactionExecuted(from, target, data, nonce);
+
+        return returnData;
     }
 
     function getBalance() external view returns (uint256) {
         return address(this).balance;
     }
 
-    // Helper functions for optimized hashing
     function _hashTargets(address[] calldata targets) internal pure returns (bytes32) {
         bytes memory packed;
         for (uint256 i = 0; i < targets.length; i++) {
@@ -160,7 +161,7 @@ contract MetaTransactionWalletBatch is Initializable, OwnableUpgradeable, UUPSUp
     function _hashData(bytes[] calldata data) internal pure returns (bytes32) {
         bytes memory packed;
         for (uint256 i = 0; i < data.length; i++) {
-            packed = bytes.concat(packed, keccak256(data[i])); // hash per bytes
+            packed = bytes.concat(packed, keccak256(data[i]));
         }
         return keccak256(packed);
     }
